@@ -2,13 +2,16 @@ package main
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
-
+	"context"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stop-error/safebrowsingv5"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+var ClientConfig safebrowsingv5.Config 
 
 func main() {
 	var Logger zerolog.Logger
@@ -31,17 +34,23 @@ func main() {
 		Logger = zerolog.New(zerolog.MultiLevelWriter(os.Stdout, logWriter)).With().Caller().Logger()
 	}
 
-	config := safebrowsingv5.Config  {
+	conf := safebrowsingv5.Config  {
 		APIKey: "",
 		Logger: Logger,
 		DBPath: filepath.Dir(executable) + "//" + "safebrowsing.db",
+		RealTimeMode: true,
 	} 
 
 
-	sbc, err := safebrowsingv5.NewClient(config, &Logger)
+	client, err := safebrowsingv5.NewClient(conf, &Logger)
 	if err != nil {
 		Logger.Error().Err(err).Msg("failed to create safe browsing client!")
 		os.Exit(1)
 	}
+
+	updateContext, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	safebrowsingv5.Update(client, updateContext, &Logger) //goroutine loop based off of wait duration
 
 }

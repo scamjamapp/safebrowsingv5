@@ -1,23 +1,26 @@
-package safebrowsingv5 
+package safebrowsingv5
 
 import (
-	"context"
 	"errors"
+	"net/http"
 	"time"
- 	"github.com/rs/zerolog"
-	"google.golang.org/api/safebrowsing/v5"  
-	"google.golang.org/api/option"
+	"crypto/tls"
+	"os"
+	"path/filepath"
+	"github.com/rs/zerolog"
 )
 
 
 
 const (
-	DefaultServerURL = "safebrowsing.googleapis.com"
+	DefaultServerURL = "https://safebrowsing.googleapis.com"
 
 	DefaultUpdatePeriod = 30 * time.Minute
 
 	DefaultRequestTimeout = time.Minute
 )
+
+
 
 var DefaultHashLists = []string{"se-4b", "mw-4b", "uws-4b", "pha-4b"}
 
@@ -60,12 +63,20 @@ type Config struct {
 	// If empty, no logs will be written.
 	Logger zerolog.Logger
 
-	// Enabled specifies wether or not safebrowser should defer startup (used by scamjam)
-	Enabled bool
+	RealTimeMode bool
+
+	boltDir string
+
 
 }
 
+type SafeBrowsingClient struct {
 
+	HttpClient http.Client
+
+	Config Config
+
+}
 
 func (c Config) copy() Config {
 	c2 := c
@@ -75,12 +86,15 @@ func (c Config) copy() Config {
 
 
 
-func (c *Config) setDefaults() bool {
+func (c *Config) setDefaults() (bool) {
 	if c.ServerURL == "" {
 		c.ServerURL = DefaultServerURL
 	}
 	if len(c.HashLists) == 0 {
 		c.HashLists = DefaultHashLists
+		if c.RealTimeMode == true {
+			c.HashLists = append(c.HashLists, "gc-32b")
+		}
 	}
 	if c.UpdatePeriod <= 0 {
 		c.UpdatePeriod = DefaultUpdatePeriod
@@ -88,32 +102,47 @@ func (c *Config) setDefaults() bool {
 	if c.RequestTimeout <= 0 {
 		c.RequestTimeout = DefaultRequestTimeout
 	}
+	
 	return true
+	
+	
 }
 
 
 
-func NewClient(conf Config, logger *zerolog.Logger) (*safebrowsing.Service, error) {
-
-	if conf.Enabled == false {
-		return nil, nil
-	}
+func NewClient(conf Config, logger *zerolog.Logger) (*SafeBrowsingClient, error) {
 
 	conf = conf.copy()
 	if !conf.setDefaults() {
 		err := errors.New("invalid configuration")
-		logger.Error().Err(err)
+		logger.Error().Err(err).Msg("")
 		return nil, err
 	}
 
-	ctx := context.Background()
-	safebrowsingService, err := safebrowsing.NewService(ctx, option.WithAPIKey(conf.APIKey))
+	executable, err := os.Executable()
 	if err != nil {
-		err := errors.New("failed to create safe browsing service")
-		logger.Error().Err(err)
+		logger.Error().Err(err).Msg("filed to get path of exec file!")
 		return nil, err
 	}
+	
+	conf.boltDir = filepath.Dir(executable)
+	conf.boltDir = conf.boltDir + "safebrowsing.db"
 
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}
 
+	sbc := SafeBrowsingClient{
+		HttpClient: http.Client{
+			Timeout: conf.RequestTimeout,
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		},
+		Config: conf,
+	}
+	
+	return &sbc, nil
 
 }
+
