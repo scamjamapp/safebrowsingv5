@@ -3,8 +3,9 @@ package main
 import (
 	"os"
 	"os/signal"
-	"path/filepath"
+	"flag"
 	"context"
+	"path/filepath"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stop-error/safebrowsingv5"
@@ -14,6 +15,21 @@ import (
 var ClientConfig safebrowsingv5.Config 
 
 func main() {
+
+	var (
+	apiKeyFlag    = flag.String("apikey", "", "specify your Safe Browsing API key")
+	// databaseFlag  = flag.String("db", "", "path to the Safe Browsing database. By default persistent storage is disabled (not recommended).")
+	// serverURLFlag = flag.String("server", safebrowsing.DefaultServerURL, "Safebrowsing API server address.")
+	// proxyFlag     = flag.String("proxy", "", "proxy to use to connect to the HTTP server")
+	)
+
+	flag.Parse()
+
+	if *apiKeyFlag == "" {
+		log.Error().Msg("No -apikey specified!")
+		os.Exit(1)
+	}
+
 	var Logger zerolog.Logger
 
 	executable, err := os.Executable()
@@ -35,22 +51,21 @@ func main() {
 	}
 
 	conf := safebrowsingv5.Config  {
-		APIKey: "",
+		APIKey: *apiKeyFlag,
 		Logger: Logger,
 		DBPath: filepath.Dir(executable) + "//" + "safebrowsing.db",
 		RealTimeMode: true,
 	} 
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
-	client, err := safebrowsingv5.NewClient(conf, &Logger)
+	client, err := safebrowsingv5.NewClient(ctx, conf, &Logger)
 	if err != nil {
 		Logger.Error().Err(err).Msg("failed to create safe browsing client!")
 		os.Exit(1)
 	}
 
-	updateContext, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
-	safebrowsingv5.Update(client, updateContext, &Logger) //goroutine loop based off of wait duration
+	Logger.Info().Msg(client.Config.DBPath)
 
 }

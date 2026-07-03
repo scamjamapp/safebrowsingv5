@@ -7,7 +7,6 @@ require (
 	github.com/pektezol/bitreader v1.4.3
 	github.com/rs/zerolog v1.34.0
 	go.etcd.io/bbolt v1.4.3
-	google.golang.org/genproto/googleapis/api v0.0.0-20260610212136-7ab31c22f7ad
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )

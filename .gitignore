@@ -33,3 +33,4 @@ go.work.sum
 *.code-workspace
 *.log
 *.db
+claude/

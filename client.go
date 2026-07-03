@@ -6,6 +6,9 @@ import (
 	"time"
 	"crypto/tls"
 	"os"
+	"context"
+	"sync"
+	"slices"
 	"path/filepath"
 	"github.com/rs/zerolog"
 )
@@ -64,10 +67,6 @@ type Config struct {
 	Logger zerolog.Logger
 
 	RealTimeMode bool
-
-	boltDir string
-
-
 }
 
 type SafeBrowsingClient struct {
@@ -75,6 +74,8 @@ type SafeBrowsingClient struct {
 	HttpClient http.Client
 
 	Config Config
+
+	updateLock sync.Mutex
 
 }
 
@@ -86,16 +87,28 @@ func (c Config) copy() Config {
 
 
 
-func (c *Config) setDefaults() (bool) {
+func (c *Config) setDefaults(logger *zerolog.Logger) (bool) {
 	if c.ServerURL == "" {
 		c.ServerURL = DefaultServerURL
 	}
+	if c.DBPath == "" {
+		executable, err := os.Executable()
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to get root of exec file!")
+			return false
+		}
+		d := filepath.Dir(executable)
+		c.DBPath = filepath.Join(d, "safebrowsing.db")
+
+	}
 	if len(c.HashLists) == 0 {
 		c.HashLists = DefaultHashLists
-		if c.RealTimeMode == true {
-			c.HashLists = append(c.HashLists, "gc-32b")
-		}
 	}
+	if c.RealTimeMode == true {
+		if !slices.Contains(c.HashLists, "gc-32b") {
+			c.HashLists = append(c.HashLists, "gc-32b")
+			}
+		}
 	if c.UpdatePeriod <= 0 {
 		c.UpdatePeriod = DefaultUpdatePeriod
 	}
@@ -110,23 +123,14 @@ func (c *Config) setDefaults() (bool) {
 
 
 
-func NewClient(conf Config, logger *zerolog.Logger) (*SafeBrowsingClient, error) {
+func NewClient(ctx context.Context, conf Config, logger *zerolog.Logger) (*SafeBrowsingClient, error) {
 
 	conf = conf.copy()
-	if !conf.setDefaults() {
+	if !conf.setDefaults(logger) {
 		err := errors.New("invalid configuration")
 		logger.Error().Err(err).Msg("")
 		return nil, err
 	}
-
-	executable, err := os.Executable()
-	if err != nil {
-		logger.Error().Err(err).Msg("filed to get path of exec file!")
-		return nil, err
-	}
-	
-	conf.boltDir = filepath.Dir(executable)
-	conf.boltDir = conf.boltDir + "safebrowsing.db"
 
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS13,
@@ -141,6 +145,9 @@ func NewClient(conf Config, logger *zerolog.Logger) (*SafeBrowsingClient, error)
 		},
 		Config: conf,
 	}
+
+	
+	go BackgroundUpdater(ctx, &sbc, logger)
 	
 	return &sbc, nil
 

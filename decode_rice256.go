@@ -19,14 +19,17 @@ func (rd *riceDecoder256) ReadValue256(logger *zerolog.Logger) (*uint256.Int, er
 	limit := uint256.NewInt(256)
 
 	for {
-		bit := uint256.NewInt(rd.br.TryReadBits(1))
-		
-
-
-		q.Add(q, one)
+		bit256, err := rd.br.ReadBits(1)
+		if err != nil {
+			logger.Error().Err(err).Msg("could not read part of 256-bit value!")
+			return nil, err
+		}
+		bit := uint256.NewInt(bit256)
 		if bit.IsZero() {
-			break
-		} 
+        	break
+    	}
+		q.Add(q, one)
+
 		if q.Gt(limit) {
 			err := errors.New("unary prefix exceeds sanity bound")
 			logger.Error().Err(err).Msg("")
@@ -35,14 +38,31 @@ func (rd *riceDecoder256) ReadValue256(logger *zerolog.Logger) (*uint256.Int, er
 	}
 
 	
-	k1, k2, k3 := uint64(64), uint64(64), uint64(64)
-	k4 := uint64(rd.k) - 192
-	r := &uint256.Int{
-	(rd.br.TryReadBits(k1)),  
-	(rd.br.TryReadBits(k2)),  
-	(rd.br.TryReadBits(k3)),   
-	(rd.br.TryReadBits(k4)),   
+
+	remainder := uint64(rd.k) - 192
+
+
+	limb0, err := rd.br.ReadBits(64)
+	if err != nil {
+		logger.Error().Err(err).Msg("could not read part of 256-bit value!")
+		return nil, err
 	}
+	limb1, err := rd.br.ReadBits(64)
+	if err != nil {
+		logger.Error().Err(err).Msg("could not read part of 256-bit value!")
+		return nil, err
+	}
+	limb2, err := rd.br.ReadBits(64)
+	if err != nil {
+		logger.Error().Err(err).Msg("could not read part of 256-bit value!")
+		return nil, err
+	}
+	limb3, err := rd.br.ReadBits(remainder)
+	if err != nil {
+		logger.Error().Err(err).Msg("could not read part of 256-bit value!")
+		return nil, err
+	}
+	r := &uint256.Int{limb0, limb1, limb2, limb3}
 
 
 	result := new(uint256.Int)
@@ -59,25 +79,25 @@ func newRiceDecoder256(br *bitreader.Reader, k int32) *riceDecoder256 {
 
 func decodeRiceIntegers256(delta riceDelta256, logger *zerolog.Logger) ([]*uint256.Int, error) {
 
+	firstValue := &uint256.Int{
+		delta.firValFourPar, delta.firValThirPar, delta.firValSecPar, delta.firValFirPar,
+	}
+
+	if delta.entriesCount == 0 {
+		return []*uint256.Int{firstValue}, nil
+	}
+
 	if delta.encodedData == nil {
 		err := errors.New("missing rice encoded data")
-		logger.Error().Err(err)
+		logger.Error().Err(err).Msg("")
 		return nil, err
-	}
+	} 
 
 
 	if delta.kParam < 227 || delta.kParam > 254 {
 		err := errors.New("invalid k parameter")
-		logger.Error().Err(err)
+		logger.Error().Err(err).Msg("")
 		return nil, err
-	}
-
-
-	firstValue := &uint256.Int{
-	delta.firValFourPar,  
-	delta.firValThirPar,  
-	delta.firValSecPar,   
-	delta.firValFirPar,   
 	}
 
 
@@ -94,8 +114,12 @@ func decodeRiceIntegers256(delta riceDelta256, logger *zerolog.Logger) ([]*uint2
 			bit.Add(values[i], d)
 			values = append(values, bit)
 		}
-		if br.TryReadRemainingBits() >= 256 {
-		return nil, errors.New("safebrowsing: unconsumed rice encoded data")
+		remaining, err := br.ReadRemainingBits()
+		if err != nil {
+    		return nil, err
+		}
+		if remaining >= 8 {
+		return nil, errors.New("unconsumed rice encoded data!")
 		}
 
 	return values, nil
